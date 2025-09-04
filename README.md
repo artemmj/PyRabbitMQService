@@ -83,16 +83,8 @@ cd PyRabbitMQService
 ### 2. Настройка окружения
 
 ```bash
-# Создание виртуального окружения
 python -m venv venv
-
-# Активация (Linux/Mac)
 source venv/bin/activate
-
-# Активация (Windows)
-venv\Scripts\activate
-
-# Установка зависимостей
 pip install -r requirements.txt
 ```
 
@@ -145,15 +137,6 @@ export MAX_RETRIES=3
 export PROCESSING_TIME=2
 ```
 
-Или через редактирование `config.py`:
-
-```python
-class Config:
-    RABBITMQ_HOST = 'localhost'
-    RABBITMQ_PORT = 5672
-    # ... другие настройки
-```
-
 
 # 🔧 Использование
 
@@ -200,9 +183,6 @@ python generate_data.py --count 500
 # Все тесты
 pytest test_rabbitmq_system.py -v
 
-# Конкретный тест
-pytest test_rabbitmq_system.py::test_order_creation_and_processing -v
-
 # С покрытием кода
 pytest --cov=. test_rabbitmq_system.py
 ```
@@ -246,13 +226,8 @@ python generate_data.py --count 50
 # 📊 Мониторинг
 
 ### RabbitMQ Management Console
+http://localhost:15672
 
-Откройте в браузере: http://localhost:15672
-
-Логин: `guest`
-Пароль: `guest`
-
-**Что мониторить:**
 - 📊 **Queues**: Количество сообщений в очередях
 - ⚡ **Message rates**: Скорость обработки сообщений
 - 🔄 **Channels**: Активные подключения
@@ -279,21 +254,17 @@ FROM orders;"
 
 # 🐛 Отладка
 
-### Включение debug логов
-
 ```python
+# Включение debug логов
 # В config.py добавьте
 import logging
 logging.basicConfig(level=logging.DEBUG)
 ```
 
-### Просмотр логов RabbitMQ
-
 ```bash
+# Просмотр логов RabbitMQ
 docker-compose logs rabbitmq
 ```
-
-### Тестирование подключения
 
 ```bash
 # Проверка подключения к RabbitMQ
