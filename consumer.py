@@ -15,10 +15,8 @@ class OrderConsumer:
     Обрабатывает заказы и отвечает на RPC запросы статуса.
     Поддерживает многопоточную работу нескольких воркеров.
     """
-    def __init__(self, worker_id: int):
-        """
-        Инициализация консьюмера с указанием ID воркера.
-        """
+    def __init__(self, worker_id: int, session = SessionLocal()):
+        """Инициализация консьюмера с указанием ID воркера (для логов)."""
         self.worker_id = worker_id
         self.connection = pika.BlockingConnection(
             pika.ConnectionParameters(
@@ -28,6 +26,7 @@ class OrderConsumer:
             )
         )
         self.channel = self.connection.channel()
+        self.session = session
 
         # Объявляем очереди (обеспечиваем их существование)
         self.channel.queue_declare(queue=Config.ORDER_QUEUE, durable=True)
@@ -52,7 +51,7 @@ class OrderConsumer:
         """
         Обрабатывает сообщение о новом заказе из очереди.
         Обновляет статус заказа и имитирует обработку.
-        
+
         Args:
             ch: Канал RabbitMQ
             method: Метод доставки сообщения
@@ -63,54 +62,53 @@ class OrderConsumer:
             message = json.loads(body)
             order_id = message['order_id']
 
-            session = SessionLocal()
-            order = session.query(Order).get(order_id)
+            order = self.session.get(Order, order_id)
 
             if not order:
-                print(f"Order {order_id} not found")
+                print(f"Заказ № {order_id} не найден...")
                 ch.basic_ack(delivery_tag=method.delivery_tag)  # Подтверждаем обработку
                 return
 
             # Обновляем статус заказа на "в обработке"
             order.status = OrderStatus.PROCESSING
-            session.commit()
+            self.session.commit()
 
-            print(f"Worker {self.worker_id} processing order {order_id}")
+            print(f"Воркер {self.worker_id} обрабатывает заказ № {order_id}")
 
             # Имитация времени обработки заказа
             time.sleep(Config.PROCESSING_TIME)
 
             # Симулируем случайные ошибки для тестирования механизма повторов
-            if order.retries < Config.MAX_RETRIES and order_id % 10 == 0:
+            if order_id % 10 == 0 and order.retries < Config.MAX_RETRIES:
                 order.retries += 1
-                session.commit()
-                raise Exception("Simulated processing error")
+                self.session.commit()
+                raise Exception("Сэмулированная ошибка...")
 
             # Успешная обработка заказа
             order.status = OrderStatus.COMPLETED
-            session.commit()
+            self.session.commit()
 
-            print(f"Worker {self.worker_id} completed order {order_id}")
+            print(f"Воркер {self.worker_id} успешно обработал заказ № {order_id}")
             ch.basic_ack(delivery_tag=method.delivery_tag)  # Подтверждаем успешную обработку
 
         except Exception as e:
-            print(f"Error processing order {order_id}: {e}")
-            session.rollback()
+            print(f"Ошибка при обработке заказа № {order_id}: {e}")
+            self.session.rollback()
 
             # Повторная отправка в очередь при ошибке (если есть попытки)
             if order and order.retries < Config.MAX_RETRIES:
                 order.retries += 1
-                session.commit()
+                self.session.commit()
                 ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)  # Возврат в очередь
             else:
                 # Если попытки исчерпаны - отмечаем как failed
                 if order:
                     order.status = OrderStatus.FAILED
-                    session.commit()
+                    self.session.commit()
                 ch.basic_ack(delivery_tag=method.delivery_tag)  # Подтверждаем окончательную обработку
         finally:
             if 'session' in locals():
-                session.close()
+                self.session.close()
 
     def handle_status_request(self, ch: BlockingChannel, method, properties, body):
         """
@@ -127,8 +125,7 @@ class OrderConsumer:
             message = json.loads(body)
             order_id = message['order_id']
 
-            session = SessionLocal()
-            order = session.query(Order).get(order_id)
+            order = self.session.get(Order, order_id)
 
             response = {'status': 'not_found'}
             if order:
@@ -153,11 +150,11 @@ class OrderConsumer:
             print(f"Error handling status request: {e}")
             ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)  # Не возвращаем в очередь
         finally:
-            session.close()
+            self.session.close()
 
     def start_consuming(self):
         """Запускает бесконечный цикл потребления сообщений"""
-        print(f"Worker {self.worker_id} started consuming...")
+        print(f"Воркер № {self.worker_id} начинает потреблять...")
         self.channel.start_consuming()
 
     def close(self):

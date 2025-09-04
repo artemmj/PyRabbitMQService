@@ -1,7 +1,7 @@
 import enum
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Enum
 from sqlalchemy.orm import declarative_base, sessionmaker
-from datetime import datetime
+from datetime import datetime, UTC
 
 from config import Config
 
@@ -33,8 +33,8 @@ class Order(Base):
     quantity = Column(Integer, nullable=False)
     amount = Column(Float, nullable=False)
     status = Column(Enum(OrderStatus), default=OrderStatus.PENDING)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now(UTC))
+    updated_at = Column(DateTime, default=datetime.now(UTC), onupdate=datetime.now(UTC))
     retries = Column(Integer, default=0)  # Счетчик попыток обработки
     
     def to_dict(self):

@@ -2,6 +2,8 @@ import sys
 import signal
 import threading
 
+import pika
+
 from consumer import OrderConsumer
 
 workers = []
@@ -27,8 +29,8 @@ def signal_handler(sig, frame):
 
 if __name__ == '__main__':
     # Запускаем несколько воркеров для демонстрации распределения нагрузки
-    for i in range(3):
-        thread = threading.Thread(target=start_worker, args=(i+1,))
+    for i in range(1, 4):
+        thread = threading.Thread(target=start_worker, args=(i,))
         thread.daemon = True
         thread.start()
 

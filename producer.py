@@ -14,7 +14,7 @@ class OrderProducer:
     Отвечает за создание заказов и отправку их в очередь на обработку.
     Также реализует RPC для запросов статуса заказов.
     """
-    def __init__(self):
+    def __init__(self, session = SessionLocal()):
         self.connection = pika.BlockingConnection(
             pika.ConnectionParameters(
                 host=Config.RABBITMQ_HOST,
@@ -23,6 +23,7 @@ class OrderProducer:
             )
         )
         self.channel = self.connection.channel()
+        self.session = session
 
         # Объявляем очередь для заказов
         self.channel.queue_declare(
@@ -36,13 +37,12 @@ class OrderProducer:
         """
         Создает заказ в базе данных и отправляет сообщение в очередь на обработку.
         """
-        session = SessionLocal()
         try:
             # Сохраняем заказ в базу
             order = Order(**order_data)
-            session.add(order)
-            session.commit()
-            session.refresh(order)
+            self.session.add(order)
+            self.session.commit()
+            self.session.refresh(order)
 
             # Формируем сообщение для очереди
             message = {
@@ -59,13 +59,13 @@ class OrderProducer:
                     correlation_id=str(uuid.uuid4())  # Уникальный ID для отслеживания
                 )
             )
-            print(f"Order {order.id} sent to queue")
+            print(f"Заказ № {order.id} отправлен в очередь...")
             return order.to_dict()
         except Exception as e:
-            session.rollback()
+            self.session.rollback()
             raise e
         finally:
-            session.close()
+            self.session.close()
 
     def get_order_status(self, order_id: int) -> Dict:
         """
