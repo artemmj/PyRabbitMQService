@@ -1,162 +1,27 @@
-import json
-import time
-
 import pika
-from pika.adapters.blocking_connection import BlockingChannel
-from pika.spec import Basic
 
-from config import Config
-from models import SessionLocal, Order, OrderStatus
+from config import connection_params
 
 
-class OrderConsumer:
-    """
-    Класс для потребления сообщений из RabbitMQ.
-    Обрабатывает заказы и отвечает на RPC запросы статуса.
-    Поддерживает многопоточную работу нескольких воркеров.
-    """
-    def __init__(self, worker_id: int, session = SessionLocal()):
-        """Инициализация консьюмера с указанием ID воркера (для логов)."""
-        self.worker_id = worker_id
-        self.connection = pika.BlockingConnection(
-            pika.ConnectionParameters(
-                host=Config.RABBITMQ_HOST,
-                port=Config.RABBITMQ_PORT,
-                credentials=pika.PlainCredentials(Config.RABBITMQ_USER, Config.RABBITMQ_PASS)
-            )
-        )
-        self.channel = self.connection.channel()
-        self.session = session
+# Установка соединения
+connection = pika.BlockingConnection(connection_params)
 
-        # Объявляем очереди (обеспечиваем их существование)
-        self.channel.queue_declare(queue=Config.ORDER_QUEUE, durable=True)
-        self.channel.queue_declare(queue=Config.STATUS_QUEUE, durable=True)
+# Создание канала
+channel = connection.channel()
 
-        # Настраиваем fair dispatch - каждый воркер получает по одному сообщению
-        self.channel.basic_qos(prefetch_count=1)
+# Имя очереди
+queue_name = 'hello'
 
-        # Подписываемся на очередь заказов для обработки
-        self.channel.basic_consume(
-            queue=Config.ORDER_QUEUE,
-            on_message_callback=self.process_order
-        )
+# Функция, которая будет вызвана при получении сообщения
+def callback(ch, method, properties, body):
+    print(f"Received: '{body}'")
 
-        # Подписываемся на очередь статусов для RPC ответов
-        self.channel.basic_consume(
-            queue=Config.STATUS_QUEUE,
-            on_message_callback=self.handle_status_request
-        )
+# Подписка на очередь и установка обработчика сообщений
+channel.basic_consume(
+    queue=queue_name,
+    on_message_callback=callback,
+    auto_ack=True  # Автоматическое подтверждение обработки сообщений
+)
 
-    def process_order(self, ch: BlockingChannel, method, properties, body):
-        """
-        Обрабатывает сообщение о новом заказе из очереди.
-        Обновляет статус заказа и имитирует обработку.
-
-        Args:
-            ch: Канал RabbitMQ
-            method: Метод доставки сообщения
-            properties: Свойства сообщения
-            body: Тело сообщения (JSON с order_id)
-        """
-        try:
-            message = json.loads(body)
-            order_id = message['order_id']
-
-            order = self.session.get(Order, order_id)
-
-            if not order:
-                print(f"Заказ № {order_id} не найден...")
-                ch.basic_ack(delivery_tag=method.delivery_tag)  # Подтверждаем обработку
-                return
-
-            # Обновляем статус заказа на "в обработке"
-            order.status = OrderStatus.PROCESSING
-            self.session.commit()
-
-            print(f"Воркер {self.worker_id} обрабатывает заказ № {order_id}")
-
-            # Имитация времени обработки заказа
-            time.sleep(Config.PROCESSING_TIME)
-
-            # Симулируем случайные ошибки для тестирования механизма повторов
-            if order_id % 10 == 0 and order.retries < Config.MAX_RETRIES:
-                order.retries += 1
-                self.session.commit()
-                raise Exception("Сэмулированная ошибка...")
-
-            # Успешная обработка заказа
-            order.status = OrderStatus.COMPLETED
-            self.session.commit()
-
-            print(f"Воркер {self.worker_id} успешно обработал заказ № {order_id}")
-            ch.basic_ack(delivery_tag=method.delivery_tag)  # Подтверждаем успешную обработку
-
-        except Exception as e:
-            print(f"Ошибка при обработке заказа № {order_id}: {e}")
-            self.session.rollback()
-
-            # Повторная отправка в очередь при ошибке (если есть попытки)
-            if order and order.retries < Config.MAX_RETRIES:
-                order.retries += 1
-                self.session.commit()
-                ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)  # Возврат в очередь
-            else:
-                # Если попытки исчерпаны - отмечаем как failed
-                if order:
-                    order.status = OrderStatus.FAILED
-                    self.session.commit()
-                ch.basic_ack(delivery_tag=method.delivery_tag)  # Подтверждаем окончательную обработку
-        finally:
-            if 'session' in locals():
-                self.session.close()
-
-    def handle_status_request(self, ch: BlockingChannel, method, properties, body):
-        """
-        Обрабатывает RPC запросы статуса заказа.
-        Отправляет ответ с текущим статусом заказа.
-
-        Args:
-            ch: Канал RabbitMQ
-            method: Метод доставки сообщения
-            properties: Свойства сообщения (включая reply_to и correlation_id)
-            body: Тело сообщения (JSON с order_id)
-        """
-        try:
-            message = json.loads(body)
-            order_id = message['order_id']
-
-            order = self.session.get(Order, order_id)
-
-            response = {'status': 'not_found'}
-            if order:
-                response = {
-                    'status': order.status.value,
-                    'order': order.to_dict()
-                }
-
-            # Отправляем ответ через RPC механизм
-            ch.basic_publish(
-                exchange='',
-                routing_key=properties.reply_to,  # Очередь указанная в запросе
-                properties=pika.BasicProperties(
-                    correlation_id=properties.correlation_id  # Сохраняем correlation_id
-                ),
-                body=json.dumps(response)
-            )
-
-            ch.basic_ack(delivery_tag=method.delivery_tag)  # Подтверждаем обработку запроса
-
-        except Exception as e:
-            print(f"Error handling status request: {e}")
-            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)  # Не возвращаем в очередь
-        finally:
-            self.session.close()
-
-    def start_consuming(self):
-        """Запускает бесконечный цикл потребления сообщений"""
-        print(f"Воркер № {self.worker_id} начинает потреблять...")
-        self.channel.start_consuming()
-
-    def close(self):
-        """Закрывает соединение с RabbitMQ"""
-        self.connection.close()
+print('Жду сообщения из очереди. Для выхода нажми Ctrl+C...')
+channel.start_consuming()
