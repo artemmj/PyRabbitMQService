@@ -16,7 +16,7 @@ class RabbitMQClient:
 
     async def publish_order_created(self, order: Order):
         if self.channel is None:
-            raise Exception("Не удалось подключить RabbitMQ...")
+            raise Exception("Не удалось подключиться к каналу RabbitMQ...")
 
         message_body = json.dumps({
             "order_id": order.id,

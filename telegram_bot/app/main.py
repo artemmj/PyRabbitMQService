@@ -3,8 +3,8 @@ import asyncio
 
 from dotenv import load_dotenv
 
-from app.consumer import OrderConsumer
-from app.tg_client import TelegramClient
+from consumer import OrderConsumer
+from tg_client import TelegramClient
 
 load_dotenv()
 
@@ -23,8 +23,9 @@ async def main():
 
     try:
         await consumer.consume_orders()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.exceptions.CancelledError):
         print("Выключение...")
+        await consumer.close()
     except Exception as e:
         print(f"Ошибка: {e}")
 

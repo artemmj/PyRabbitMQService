@@ -2,7 +2,7 @@ import json
 
 import aio_pika
 
-from app.tg_client import TelegramClient
+from tg_client import TelegramClient
 
 
 class OrderConsumer:
@@ -39,5 +39,8 @@ class OrderConsumer:
             f"Статус: {order_data['status']}\n"
             f"Создан: {order_data['created_at']}"
         )
-
+        print(message)
         await self.telegram_client.send_message(message)
+
+    async def close(self):
+        await self.connection.close()
