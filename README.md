@@ -16,7 +16,7 @@ graph TD
     B -->|Сохраняет заказ| C[Локальная память]
     B -->|Publish message| D[RabbitMQ]
     D -->|Consume messages| E[Telegram Bot]
-    D -->|Consume messages| G[GoLang Service]
+    D -->|Consume messages| G[Python Service]
     E -->|Send notification| F[Telegram Chat]
     
     subgraph "Микросервисная система"
