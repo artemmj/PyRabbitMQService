@@ -18,6 +18,7 @@ graph TD
     D -->|Consume messages| E[Telegram Bot]
     D -->|Consume messages| G[Python Service]
     E -->|Send notification| F[Telegram Chat]
+    G -->|Send notification| H[std out]
     
     subgraph "Микросервисная система"
         B
